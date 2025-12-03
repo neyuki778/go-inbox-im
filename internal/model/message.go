@@ -20,3 +20,15 @@ type TimelineMessage struct {
 func (TimelineMessage) TableName() string {
 	return "timeline_message"
 }
+
+// UserConversationState 对应 user_conversation_state 表，用于存储 ACK 位点。
+type UserConversationState struct {
+	UserID         string    `gorm:"column:user_id;size:64;primaryKey"`
+	ConversationID string    `gorm:"column:conversation_id;size:64;primaryKey"`
+	LastAckSeq     int64     `gorm:"column:last_ack_seq;default:0"`
+	UpdatedAt      time.Time `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+func (UserConversationState) TableName() string {
+	return "user_conversation_state"
+}
