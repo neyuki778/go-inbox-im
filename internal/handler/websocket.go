@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"time"
@@ -21,13 +23,15 @@ const (
 // WebSocketHandler 负责握手、注册连接以及消息读循环。
 type WebSocketHandler struct {
 	connManager *service.ConnectionManager
+	messageSvc  *service.MessageService
 	upgrader    websocket.Upgrader
 }
 
-// NewWebSocketHandler 创建 Handler，允许注入连接管理器。
-func NewWebSocketHandler(connManager *service.ConnectionManager) *WebSocketHandler {
+// NewWebSocketHandler 创建 Handler，允许注入连接管理器与消息服务。
+func NewWebSocketHandler(connManager *service.ConnectionManager, messageSvc *service.MessageService) *WebSocketHandler {
 	return &WebSocketHandler{
 		connManager: connManager,
+		messageSvc:  messageSvc,
 		upgrader: websocket.Upgrader{
 			// 生产环境需校验 Origin
 			CheckOrigin: func(r *http.Request) bool { return true },
@@ -83,6 +87,11 @@ func (h *WebSocketHandler) readLoop(userID string, conn *websocket.Conn) {
 				log.Printf("心跳回复失败 user=%s: %v", userID, err)
 				return
 			}
+		case model.CmdChat:
+			if err := h.handleChat(userID, packet, conn); err != nil {
+				log.Printf("处理聊天消息失败 user=%s: %v", userID, err)
+				return
+			}
 		default:
 			// 预留：登录、聊天、拉取等指令后续接入 service 层
 			log.Printf("收到用户 %s 的指令 cmd=%d msg_id=%s", userID, packet.Cmd, packet.MsgId)
@@ -94,4 +103,29 @@ func (h *WebSocketHandler) readLoop(userID string, conn *websocket.Conn) {
 func (h *WebSocketHandler) writeJSON(conn *websocket.Conn, payload interface{}) error {
 	_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 	return conn.WriteJSON(payload)
+}
+
+// handleChat 处理聊天消息：解析、写库并返回 seq。
+func (h *WebSocketHandler) handleChat(userID string, packet model.InputPacket, conn *websocket.Conn) error {
+	// TODO: 校验 conversation_id，反序列化 payload 为 ChatPayload，调用 messageSvc.HandleChat，
+	// 将结果写回客户端（注意设置超时与错误处理）
+	// return errors.New("handleChat not implemented")
+	if packet.ConversationId == ""{
+		return h.writeJSON(conn, model.OutputPacket{Cmd : model.CmdChat, Code: 400, MsgId: packet.MsgId, Payload: "ConversationId 不能为空!"})
+	}
+
+	var payload service.ChatPayload
+	if err := json.Unmarshal(packet.Payload, &payload); err != nil{
+		return h.writeJSON(conn, model.OutputPacket{Cmd : model.CmdChat, Code: 400, MsgId: packet.MsgId, Payload: "Payload 解析失败!"})
+	}
+
+	ctx, cancer := context.WithTimeout(context.Background(), 3 * time.Second)
+	defer cancer()
+	
+	output_packet, err := h.messageSvc.HandleChat(ctx, userID, packet, payload)
+	if err != nil{
+		h.writeJSON(conn, output_packet)
+		return err
+	}
+	return h.writeJSON(conn, output_packet)
 }

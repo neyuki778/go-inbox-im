@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"go-im/internal/handler"
+	"go-im/internal/repository"
 	"go-im/internal/service"
 )
 
@@ -19,8 +20,14 @@ const serverAddr = ":8080"
 
 func main() {
 	// 构建依赖
+	db, err := repository.NewDB()
+	if err != nil {
+		log.Fatalf("连接数据库失败: %v", err)
+	}
 	connManager := service.NewConnectionManager()
-	wsHandler := handler.NewWebSocketHandler(connManager)
+	msgRepo := repository.NewMessageRepository(db)
+	msgSvc := service.NewMessageService(msgRepo)
+	wsHandler := handler.NewWebSocketHandler(connManager, msgSvc)
 
 	// 初始化 Gin，引入基础日志与 panic 恢复
 	router := gin.New()
