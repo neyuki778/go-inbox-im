@@ -4,20 +4,20 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"go-im/internal/model"
 	"go-im/internal/repository"
 	"go-im/internal/service"
 
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
-func newServiceWithSQLite(t *testing.T) (*service.MessageService, *gorm.DB) {
+func newServiceWithMySQL(t *testing.T) (*service.MessageService, *gorm.DB) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := repository.NewDB()
 	if err != nil {
-		t.Fatalf("failed to open sqlite: %v", err)
+		t.Fatalf("failed to init db: %v", err)
 	}
 	if err := db.AutoMigrate(&model.TimelineMessage{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
@@ -27,10 +27,10 @@ func newServiceWithSQLite(t *testing.T) (*service.MessageService, *gorm.DB) {
 }
 
 func TestHandleChatFillsDefaultsAndPersists(t *testing.T) {
-	svc, db := newServiceWithSQLite(t)
+	svc, db := newServiceWithMySQL(t)
 	ctx := context.Background()
 
-	packet := model.InputPacket{Cmd: model.CmdChat, ConversationId: "conv-defaults"}
+	packet := model.InputPacket{Cmd: model.CmdChat, ConversationId: uniqueID("conv-defaults")}
 	payload := service.ChatPayload{Content: "hi"} // msg_type 缺省
 	out, err := svc.HandleChat(ctx, "u1", packet, payload)
 	if err != nil {
@@ -53,7 +53,7 @@ func TestHandleChatFillsDefaultsAndPersists(t *testing.T) {
 	if saved.MsgType != 1 {
 		t.Fatalf("expected default msg_type=1, got %d", saved.MsgType)
 	}
-	if saved.SenderID != "u1" || saved.Content != "hi" || saved.ConversationID != "conv-defaults" {
+	if saved.SenderID != "u1" || saved.Content != "hi" || saved.ConversationID != packet.ConversationId {
 		t.Fatalf("unexpected saved message: %+v", saved)
 	}
 	if saved.SendTime == 0 {
@@ -62,10 +62,10 @@ func TestHandleChatFillsDefaultsAndPersists(t *testing.T) {
 }
 
 func TestHandleChatIdempotentMsgID(t *testing.T) {
-	svc, db := newServiceWithSQLite(t)
+	svc, db := newServiceWithMySQL(t)
 	ctx := context.Background()
 
-	packet := model.InputPacket{Cmd: model.CmdChat, ConversationId: "conv-idem", MsgId: "fixed-id"}
+	packet := model.InputPacket{Cmd: model.CmdChat, ConversationId: uniqueID("conv-idem"), MsgId: uniqueID("fixed-id")}
 	payload := service.ChatPayload{Content: "hello", MsgType: 1}
 
 	out1, err := svc.HandleChat(ctx, "u1", packet, payload)
@@ -120,4 +120,9 @@ func TestHandleChatPropagatesRepoError(t *testing.T) {
 	if !errors.Is(err, repoErr) {
 		t.Fatalf("expected repo error to propagate, got %v", err)
 	}
+}
+
+// helper 生成唯一 ID，避免测试间冲突
+func uniqueID(prefix string) string {
+	return prefix + "-" + time.Now().Format("20060102-150405.000000000")
 }
