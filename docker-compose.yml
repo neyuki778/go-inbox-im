@@ -11,7 +11,7 @@ services:
       MYSQL_PASSWORD: im_pass123
       TZ: Asia/Shanghai
     ports:
-      - "8848:8848"
+      - "8848:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
