@@ -30,16 +30,24 @@ func NewPullService(store PullStorage) *PullService {
 // PullMessages 按会话内 seq 拉取消息，返回游标信息。
 func (s *PullService) PullMessages(ctx context.Context, conversationID string, cursorSeq int64, limit int) (PullResult, error) {
 	// TODO: 调用 store.ListMessages，计算 next_cursor_seq 和 has_more
-	messages, err := s.store.ListMessages(ctx, conversationID, cursorSeq, limit)
-	if err != nil{
-		return PullResult{}, err
+	if limit <= 0 { limit = 50 }
+	msgs, err := s.store.ListMessages(ctx, conversationID, cursorSeq, limit + 1)
+	if err != nil {return PullResult{}, err}
+	if len(msgs) == 0 {
+		return PullResult{NextCursorSeq: cursorSeq}, nil
 	}
-	nextCursorSeq := messages[len(messages)-1].Seq
-	hasMore := false // ???
+	hasMore := len(msgs) >= limit
+
+	if hasMore{
+		msgs = msgs[:limit]
+	}
+	next := int64(msgs[len(msgs)-1].Seq)
+
 	return PullResult{
-		Messages: messages,
-		NextCursorSeq: int64(nextCursorSeq),
+		Messages: msgs,
+		NextCursorSeq: next,
 		HasMore: hasMore,
+
 	}, nil
 }
 
